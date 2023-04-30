@@ -1,4 +1,4 @@
 .vscode
-.so
-.o
+*.so
+*.o
 

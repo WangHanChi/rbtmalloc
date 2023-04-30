@@ -331,7 +331,7 @@ void *malloc(size_t size)
 {
     metadata_t *tmp;
     void *ptr;
-
+    char buf[32];
     pthread_mutex_lock(&g_info.mutex);
     if (size < SIZE_DEFAULT_BLOCK)
         size = SIZE_DEFAULT_BLOCK;
@@ -342,6 +342,8 @@ void *malloc(size_t size)
         ptr = split_block(tmp, size);
     else
         ptr = get_heap(size);
+    sprintf(buf, "malloc called, size = %zu\n", size);
+    write(2, buf, strlen(buf));
     pthread_mutex_unlock(&g_info.mutex);
     return ptr ? (GET_PAYLOAD(ptr)) : NULL;
 }

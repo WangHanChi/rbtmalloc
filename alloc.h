@@ -65,9 +65,9 @@ static rbnode_t *rotate_right(rbnode_t *right);
 static rbnode_t *balance(rbnode_t *node);
 static rbnode_t *move_red_to_left(rbnode_t *node);
 static rbnode_t *move_red_to_right(rbnode_t *node);
-static bool insert_node(rbnode_t *node, metadata_t *new);
+static bool insert_node(rbnode_t *node, metadata_t *);
 static rbnode_t *new_rbtree(metadata_t *node);
-static rbnode_t *insert_this(rbnode_t *node, metadata_t *new);
+static rbnode_t *insert_this(rbnode_t *node, metadata_t *);
 static rbnode_t *new_rbtree(metadata_t *node);
 static rbnode_t *remove_node(rbnode_t *node, t_key key, rbnode_t *tmp);
 static rbnode_t *remove_key(rbnode_t *node, t_key key);
@@ -79,7 +79,7 @@ static rbnode_t *remove_from_freed_list(rbnode_t *node, metadata_t *meta);
 
 /* memory operation */
 static bool resize_tab_values(metadata_t **old, rbnode_t *node);
-static rbnode_t *insert_in_freed_list(rbnode_t *node, metadata_t *new);
+static rbnode_t *insert_in_freed_list(rbnode_t *node, metadata_t *);
 static void *get_heap(size_t size);
 static void *alloc_tab(size_t size);
 static bool resize_tab_values(metadata_t **old, rbnode_t *node);
