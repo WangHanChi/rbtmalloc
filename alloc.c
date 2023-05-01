@@ -5,6 +5,207 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+
+
+static malloc_t g_info = {
+    .last_node = NULL,
+    .page_size = 0,
+    .mutex = NULL,
+#ifdef MMAP
+    .ptr = NULL,
+#else
+    .end_in_page = NULL,
+    .first_block = NULL,
+    .root_rbtree = NULL,
+    .page_remaining = 0,
+#endif
+};
+
+
+
+#ifdef MMAP
+
+#include <sys/mman.h> // mmap
+
+void *mmap_malloc(size_t size);
+void *mmap_calloc(size_t nmemb, size_t size);
+void *mmap_realloc(void *ptr, size_t size);
+void mmap_free(void *ptr);
+
+void *mmap_malloc(size_t size)
+{
+    if(size == 0)
+        return NULL;
+    if(g_info.last_node != NULL)
+        pthread_mutex_lock(&g_info.mutex);
+    
+    void *return_pointer = NULL;
+    return_pointer = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if(g_info.last_node == NULL){
+        g_info.last_node = mmap(NULL, sizeof(metadata_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        g_info.last_node->next = NULL;
+        g_info.last_node->prev = NULL;
+        g_info.last_node->ptr = NULL;
+        g_info.last_node->size = 0;
+
+        pthread_mutex_init(&g_info.mutex, NULL);
+        pthread_mutex_lock(&g_info.mutex);
+    }
+
+    metadata_t *cur = g_info.last_node;
+
+    while(cur->next != NULL){
+        cur = cur->next;
+    }
+
+    metadata_t *new = mmap(NULL, sizeof(metadata_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    cur->next = new;
+    new->prev = cur;
+
+    cur = new;
+    cur->next = NULL;
+    cur->size = size;
+    cur->ptr = return_pointer;
+
+    pthread_mutex_unlock(&g_info.mutex);
+    
+#ifdef DEBUG
+    fprintf(stderr, "malloc(%ld) = %p\n", size, return_pointer);
+#endif
+
+    if(return_pointer == (void *) -1)
+        return NULL;
+    return return_pointer;
+}
+
+void mmap_free(void *ptr)
+{
+#ifdef DEBUG
+  fprintf(stderr, "free(%p)\n", ptr);
+#endif
+
+    if(ptr == NULL)
+        return;
+    
+    pthread_mutex_lock(&g_info.mutex);
+
+    metadata_t *cur = g_info.last_node;
+
+    while(cur->ptr != ptr){
+        cur = cur->next;
+    }
+
+    metadata_t *prev;
+    if(cur->prev != NULL){
+        prev = cur->prev;
+        prev->next = cur->next;
+    } else {
+        g_info.last_node = cur->next;
+    }
+
+    metadata_t *next;
+    if(cur->next != NULL){
+        next = cur->next;
+        next->prev = cur->prev;
+    } else {
+        prev->next = NULL;
+    }
+
+    pthread_mutex_unlock(&g_info.mutex);
+    munmap(cur->ptr, cur->size);
+    munmap(cur, sizeof(metadata_t));
+
+}
+
+void *mmap_calloc(size_t nmemb, size_t size)
+{
+    if(nmemb == 0 || size == 0)
+        return NULL;
+
+    size_t realsize = nmemb * size;
+    void *return_pointer = malloc(realsize);
+
+#ifdef DEBUG
+    fprintf(stderr, "calloc(%ld, %ld) = %p\n", nmemb, size, return_pointer);
+#endif
+
+  return return_pointer;
+}
+
+void *mmap_realloc(void *ptr, size_t size)
+{
+    void *newptr = malloc(size);
+#ifdef DEBUG
+    fprintf(stderr, "realloc(%p, %ld) = %p\n", ptr, size, newptr);
+#endif
+    if(ptr == NULL)
+    return newptr;
+  
+    pthread_mutex_lock(&g_info.mutex);
+
+    metadata_t *old = g_info.last_node;
+    while(old->ptr != ptr)
+        old = old->next;
+
+    pthread_mutex_unlock(&g_info.mutex);
+
+    // copy last block to new block
+    memcpy(newptr, ptr, old->size);
+
+    // free old block
+    free(ptr);
+
+    return newptr;
+}
+#else
+
+/* RBT operation */
+static inline void flip_color(rbnode_t *node);
+static rbnode_t *rotate_left(rbnode_t *left);
+static rbnode_t *rotate_right(rbnode_t *right);
+static rbnode_t *balance(rbnode_t *node);
+static rbnode_t *move_red_to_left(rbnode_t *node);
+static rbnode_t *move_red_to_right(rbnode_t *node);
+static bool insert_node(rbnode_t *node, metadata_t *);
+static rbnode_t *new_rbtree(metadata_t *node);
+static rbnode_t *insert_this(rbnode_t *node, metadata_t *);
+static rbnode_t *new_rbtree(metadata_t *node);
+static rbnode_t *remove_node(rbnode_t *node, t_key key, rbnode_t *tmp);
+static rbnode_t *remove_key(rbnode_t *node, t_key key);
+static rbnode_t *remove_node(rbnode_t *node, t_key key, rbnode_t *tmp);
+static rbnode_t *remove_k(rbnode_t *node, t_key key);
+static rbnode_t *get_key(rbnode_t *node, t_key key);
+static rbnode_t *remove_from_freed_list(rbnode_t *node, metadata_t *meta);
+
+
+/* memory operation */
+static bool resize_tab_values(metadata_t **old, rbnode_t *node);
+static rbnode_t *insert_in_freed_list(rbnode_t *node, metadata_t *);
+static void *get_heap(size_t size);
+static void *alloc_tab(size_t size);
+static bool resize_tab_values(metadata_t **old, rbnode_t *node);
+static rbnode_t *remove_min(rbnode_t *node);
+static inline rbnode_t *min(rbnode_t *node);
+static inline rbnode_t *find_best(rbnode_t *node, size_t size);
+static metadata_t *search_freed_block(rbnode_t *node, size_t size);
+static void *split_block(metadata_t *node, size_t size);
+void *free_realloc(void *ptr);
+static void invalid_pointer(void *ptr);
+static void double_free(void *ptr);
+static metadata_t *fusion(metadata_t *first, metadata_t *second);
+static inline metadata_t *try_fusion(metadata_t *node);
+static inline void change_break(metadata_t *node);
+static size_t get_new_page(size_t size);
+static void *get_in_page(size_t size);
+void *brk_malloc(size_t size);
+void *brk_calloc(size_t nmemb, size_t size);
+void *brk_realloc(void *ptr, size_t size);
+void brk_free(void *ptr);
+
+
 
 static inline void flip_color(rbnode_t *node)
 {
@@ -267,20 +468,6 @@ static rbnode_t *remove_from_freed_list(rbnode_t *node, metadata_t *meta)
     return NULL;
 }
 
-#include <errno.h>
-#include <stdio.h>
-#include <unistd.h>
-
-static malloc_t g_info = {
-    .root_rbtree = NULL,
-    .last_node = NULL,
-    .end_in_page = NULL,
-    .first_block = NULL,
-    .page_size = 0,
-    .mutex = PTHREAD_MUTEX_INITIALIZER,
-    .page_remaining = 0,
-};
-
 static inline rbnode_t *find_best(rbnode_t *node, size_t size)
 {
     rbnode_t *tmp = NULL;
@@ -325,27 +512,6 @@ static void *split_block(metadata_t *node, size_t size)
         g_info.root_rbtree = insert_in_freed_list(g_info.root_rbtree, new);
     }
     return node;
-}
-
-void *malloc(size_t size)
-{
-    metadata_t *tmp;
-    void *ptr;
-    char buf[32];
-    pthread_mutex_lock(&g_info.mutex);
-    if (size < SIZE_DEFAULT_BLOCK)
-        size = SIZE_DEFAULT_BLOCK;
-    size = ALIGN_BYTES(size) + META_SIZE;
-    if (!g_info.page_size)
-        g_info.page_size = getpagesize();
-    if ((tmp = search_freed_block(g_info.root_rbtree, size)))
-        ptr = split_block(tmp, size);
-    else
-        ptr = get_heap(size);
-    sprintf(buf, "malloc called, size = %zu\n", size);
-    write(2, buf, strlen(buf));
-    pthread_mutex_unlock(&g_info.mutex);
-    return ptr ? (GET_PAYLOAD(ptr)) : NULL;
 }
 
 static void invalid_pointer(void *ptr)
@@ -408,71 +574,6 @@ static inline void change_break(metadata_t *node)
         g_info.page_remaining - (pages_to_remove * g_info.page_size);
 }
 
-void free(void *ptr)
-{
-    if (!ptr)
-        return;
-
-    pthread_mutex_lock(&g_info.mutex);
-    metadata_t *node = GET_NODE(ptr);
-    if (ptr < g_info.first_block || ptr > g_info.end_in_page || !IS_VALID(node))
-        invalid_pointer(ptr);
-    if (node->free == YFREE)
-        double_free(ptr);
-    node = try_fusion(node);
-    if (!node->next)
-        change_break(node);
-    else
-        g_info.root_rbtree = insert_in_freed_list(g_info.root_rbtree, node);
-    pthread_mutex_unlock(&g_info.mutex);
-}
-
-void *calloc(size_t nmemb, size_t size)
-{
-    if (!nmemb || !size)
-        return NULL;
-
-    void *ptr;
-    if (!(ptr = malloc(size * nmemb)))
-        return NULL;
-
-    pthread_mutex_lock(&g_info.mutex);
-    memset(ptr, 0, ALIGN_BYTES(size * nmemb));
-    pthread_mutex_unlock(&g_info.mutex);
-    return ptr;
-}
-
-void *free_realloc(void *ptr)
-{
-    free(ptr);
-    return NULL;
-}
-
-void *realloc(void *ptr, size_t size)
-{
-    if (!ptr)
-        return malloc(size);
-    if (!size)
-        return free_realloc(ptr);
-
-    ptr = (void *) ptr - META_SIZE;
-    metadata_t *tmp = (metadata_t *) ptr;
-    metadata_t *new = ptr;
-    if (size + META_SIZE > tmp->size) {
-        if (!(new = malloc(size)))
-            return NULL;
-
-        size = ALIGN_BYTES(size);
-        pthread_mutex_lock(&g_info.mutex);
-        memcpy(new, (void *) ptr + META_SIZE,
-               (size <= tmp->size) ? (size) : (tmp->size));
-        pthread_mutex_unlock(&g_info.mutex);
-        free((void *) ptr + META_SIZE);
-    } else
-        new = GET_PAYLOAD(new);
-    return new;
-}
-
 static size_t get_new_page(size_t size)
 {
     size_t pages = ((size / g_info.page_size) + 1) * g_info.page_size;
@@ -514,4 +615,128 @@ static void *get_heap(size_t size)
     }
     g_info.page_remaining -= size;
     return get_in_page(size);
+}
+
+void *brk_malloc(size_t size)
+{
+    metadata_t *tmp;
+    void *ptr;
+    char buf[32];
+    pthread_mutex_lock(&g_info.mutex);
+    if (size < SIZE_DEFAULT_BLOCK)
+        size = SIZE_DEFAULT_BLOCK;
+    size = ALIGN_BYTES(size) + META_SIZE;
+    if (!g_info.page_size)
+        g_info.page_size = getpagesize();
+    if ((tmp = search_freed_block(g_info.root_rbtree, size)))
+        ptr = split_block(tmp, size);
+    else
+        ptr = get_heap(size);
+    sprintf(buf, "malloc called, size = %zu\n", size);
+    write(2, buf, strlen(buf));
+    pthread_mutex_unlock(&g_info.mutex);
+    return ptr ? (GET_PAYLOAD(ptr)) : NULL;
+}
+
+void brk_free(void *ptr)
+{
+    if (!ptr)
+        return;
+
+    pthread_mutex_lock(&g_info.mutex);
+    metadata_t *node = GET_NODE(ptr);
+    if (ptr < g_info.first_block || ptr > g_info.end_in_page || !IS_VALID(node))
+        invalid_pointer(ptr);
+    if (node->free == YFREE)
+        double_free(ptr);
+    node = try_fusion(node);
+    if (!node->next)
+        change_break(node);
+    else
+        g_info.root_rbtree = insert_in_freed_list(g_info.root_rbtree, node);
+    pthread_mutex_unlock(&g_info.mutex);
+}
+
+void *brk_calloc(size_t nmemb, size_t size)
+{
+    if (!nmemb || !size)
+        return NULL;
+
+    void *ptr;
+    if (!(ptr = malloc(size * nmemb)))
+        return NULL;
+
+    pthread_mutex_lock(&g_info.mutex);
+    memset(ptr, 0, ALIGN_BYTES(size * nmemb));
+    pthread_mutex_unlock(&g_info.mutex);
+    return ptr;
+}
+
+void *brk_realloc(void *ptr, size_t size)
+{
+    if (!ptr)
+        return malloc(size);
+    if (!size)
+        return free_realloc(ptr);
+
+    ptr = (void *) ptr - META_SIZE;
+    metadata_t *tmp = (metadata_t *) ptr;
+    metadata_t *new = ptr;
+    if (size + META_SIZE > tmp->size) {
+        if (!(new = malloc(size)))
+            return NULL;
+
+        size = ALIGN_BYTES(size);
+        pthread_mutex_lock(&g_info.mutex);
+        memcpy(new, (void *) ptr + META_SIZE,
+               (size <= tmp->size) ? (size) : (tmp->size));
+        pthread_mutex_unlock(&g_info.mutex);
+        free((void *) ptr + META_SIZE);
+    } else
+        new = GET_PAYLOAD(new);
+    return new;
+}
+
+void *free_realloc(void *ptr)
+{
+    brk_free(ptr);
+    return NULL;
+}
+
+#endif
+
+void *malloc(size_t size)
+{
+#ifdef MMAP
+    return mmap_malloc(size);
+#else
+    return brk_malloc(size);
+#endif
+}
+
+void free(void *ptr)
+{
+#ifdef MMAP
+    mmap_free(ptr);
+#else
+    brk_free(ptr);
+#endif
+}
+
+void *calloc(size_t nmemb, size_t size)
+{
+#ifdef MMAP
+    return mmap_calloc(nmemb, size);
+#else
+    return brk_calloc(nmemb, size);
+#endif   
+}
+
+void *realloc(void *ptr, size_t size)
+{
+#ifdef MMAP
+    return mmap_realloc(ptr, size);
+#else
+    return brk_realloc(ptr, size);
+#endif    
 }
