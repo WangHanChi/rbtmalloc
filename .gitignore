@@ -1,4 +1,6 @@
 .vscode
 *.so
 *.o
-
+test_small
+test_large
+test_huge
