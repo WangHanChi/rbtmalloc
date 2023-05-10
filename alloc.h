@@ -1,9 +1,13 @@
-#include <stdint.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include "rb.h"
 
-typedef enum rbcolor { BLACK = 0, RED = 1 } rbcolor_t;
-#define MAP_ANONYMOUS   0x20
+#define MAP_ANONYMOUS 0x20
+#define MAX_SMALL 512
+
+struct large_;
+typedef struct large_ large_t;
 
 typedef struct metadata {
     struct metadata *next, *prev;
@@ -11,22 +15,16 @@ typedef struct metadata {
     void *ptr;
 } metadata_t;
 
-typedef size_t t_key;
-typedef metadata_t t_value;
-
-typedef struct rbnode {
+struct large_ {
     size_t size;
-    size_t free;
-    metadata_t *next, *prev;
-    t_key key;
-    t_value **tab_values;
-    size_t size_tab;
-    size_t n_active;
-    rbcolor_t color;
-    struct rbnode *left, *right;
-} rbnode_t;
+    void *ptr;
+    rb_node(large_t) link;
+};
+
+typedef rb_tree(large_t) large_tree;
 
 typedef struct {
+    large_tree *large_used_tree;
     metadata_t *last_node;
     size_t page_size;
     pthread_mutex_t mutex;
