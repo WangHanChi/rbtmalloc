@@ -2,9 +2,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "rb.h"
+#include "mpool.h"
+#include "list.h"
 
-#define MAP_ANONYMOUS 0x20
-#define MAX_SMALL 512
+#define MAP_ANONYMOUS   0x20
+#define MAX_SMALL       512
+#define SMALL_POOL_SIZE 4096 * 1024 * 2
 
 struct large_;
 typedef struct large_ large_t;
@@ -28,6 +31,9 @@ typedef struct {
     metadata_t *last_node;
     size_t page_size;
     pthread_mutex_t mutex;
+    slab_t *tab;
+    size_t pool_size;
+    size_t pool_free_space;
     void *ptr;
 } malloc_t;
 
