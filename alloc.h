@@ -20,8 +20,8 @@ typedef struct metadata {
 
 struct large_ {
     size_t size;
-    void *ptr;
     rb_node(large_t) link;
+    void *ptr;
 };
 
 typedef rb_tree(large_t) large_tree;
@@ -34,7 +34,6 @@ typedef struct {
     slab_t *tab;
     size_t pool_size;
     size_t pool_free_space;
-    void *ptr;
 } malloc_t;
 
 

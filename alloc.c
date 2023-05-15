@@ -17,9 +17,17 @@ static malloc_t g_info = {
     .mutex = NULL,
     .pool_size = 0,
     .pool_free_space = 0,
-    .ptr = NULL,
 };
 
+
+static int large_addr_comp(large_t *a, large_t *b) {
+    uintptr_t a_addr = (uintptr_t)a->ptr;
+    uintptr_t b_addr = (uintptr_t)b->ptr;
+    return (a_addr > b_addr) - (a_addr < b_addr);
+}
+
+rb_gen(static, large_tree_, large_tree, large_t, link, large_addr_comp)
+large_tree tree;
 
 LIST_HEAD(slab_head);
 static slab_t sm_first;
@@ -54,7 +62,6 @@ void *mmap_malloc(size_t size)
         pthread_mutex_init(&g_info.mutex, NULL);
         pthread_mutex_lock(&g_info.mutex);
     }
-
 
     metadata_t *cur = g_info.last_node;
 
@@ -105,7 +112,6 @@ void mmap_free(void *ptr)
         pthread_mutex_unlock(&g_info.mutex);
         return;
     }
-
 
     metadata_t *prev = cur->prev;
     metadata_t *next = cur->prev;
@@ -193,6 +199,10 @@ void block_try_merge(struct list_head *head, struct list_head *node1, struct lis
     }
 }
     
+    
+
+
+
 
 
 bool pool_init(void *addr, size_t size)
@@ -218,12 +228,17 @@ void *pool_malloc(size_t size)
     if (size <= 0)
         return NULL;
 
+    if(g_info.tab != NULL)
+        pthread_mutex_lock(&g_info.mutex);
+
     size_t _size = round_up(size);
     if(g_info.tab == NULL){
         void *ptr = mmap(NULL, SMALL_POOL_SIZE, PROT_READ | PROT_WRITE,
                            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
         bool check = pool_init(ptr, SMALL_POOL_SIZE);
         assert(check);      // for debug
+        pthread_mutex_init(&g_info.mutex, NULL);
+        pthread_mutex_lock(&g_info.mutex);
     }
 
     if (g_info.pool_free_space <= (_size + header_size))
@@ -241,6 +256,7 @@ void *pool_malloc(size_t size)
     g_info.pool_free_space -= _size;
     g_info.pool_free_space -= word_size;
     g_info.pool_free_space -= sizeof(slab_t);
+    pthread_mutex_unlock(&g_info.mutex);
 #ifdef DEBUG
     fprintf(stderr, "malloc(%ld) = %p\nremain(%ld)\n", size, &ret->ptr, g_info.pool_free_space);
 #endif
@@ -273,15 +289,134 @@ void pool_free(void *addr)
 #ifdef DEBUG
     fprintf(stderr, "free(%p)\n", addr);
 #endif
+
+    if(addr == NULL)
+        return;
+    pthread_mutex_lock(&g_info.mutex);
     slab_t *target = container_of(addr, slab_t, ptr);
     g_info.pool_free_space += target->size;
     struct list_head *target_after = get_loc_to_free(&g_info.tab->list, addr);
     list_insert_before(&target->list, target_after);
     block_try_merge(&g_info.tab->list, &target->list, target->list.next);
     block_try_merge(&g_info.tab->list, target->list.prev, &target->list);
-    printf("remain:%ld | page size:%ld\n", g_info.pool_free_space, g_info.pool_size);
+
+#ifdef DEBUG
+    fprintf(stderr, "remain:%ld | page size:%ld\n", g_info.pool_free_space, g_info.pool_size);
+#endif
+
+    pthread_mutex_unlock(&g_info.mutex);
 }
 
+
+void *tree_malloc(size_t size);
+void *tree_calloc(size_t nmemb, size_t size);
+void *tree_realloc(void *ptr, size_t size);
+void tree_free(void *ptr);
+
+
+void *tree_malloc(size_t size)
+{
+    if (size == 0)
+        return NULL;
+    if (g_info.large_used_tree != NULL)
+        pthread_mutex_lock(&g_info.mutex);
+
+    void *return_pointer = NULL;
+    return_pointer = mmap(NULL, size + sizeof(large_t), PROT_READ | PROT_WRITE,
+                          MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if (g_info.large_used_tree == NULL) {
+        large_tree_new(&tree);
+        g_info.large_used_tree = &tree;
+        pthread_mutex_init(&g_info.mutex, NULL);
+        pthread_mutex_lock(&g_info.mutex);
+    }
+
+    large_t *new  = (large_t *)return_pointer;
+
+    new->size = size;
+    new->ptr = (void *)new + sizeof(size_t) + sizeof(rb_node(large_t));
+    large_tree_insert(g_info.large_used_tree, new);
+#ifdef DEBUG
+    fprintf(stderr, "ROOT -> %p | tree -> %p\n", g_info.large_used_tree, tree);
+    fprintf(stderr, "new : %p | new->size : %ld | new->ptr : %p | &new->ptr : %p\n", new, new->size, new->ptr, &new->ptr);
+    fprintf(stderr, "the left : %p | the right : %p\n", g_info.large_used_tree->root->link.left, g_info.large_used_tree->root->link.right_red);
+#endif
+    pthread_mutex_unlock(&g_info.mutex);
+
+#ifdef DEBUG
+    fprintf(stderr, "malloc(%ld) = %p\n\n", size, &new->ptr);
+#endif
+
+    if (return_pointer == (void *) -1)
+        return NULL;
+    return &new->ptr;
+}
+
+void tree_free(void *ptr)
+{
+#ifdef DEBUG
+    fprintf(stderr, "free(%p)\n\n", ptr);
+#endif
+
+    if (ptr == NULL)
+        return;
+
+    pthread_mutex_lock(&g_info.mutex);
+    
+    large_t *remove = container_of(ptr, large_t, ptr);
+    
+    large_tree_remove(g_info.large_used_tree, remove);
+
+    pthread_mutex_unlock(&g_info.mutex);
+    
+    munmap(remove->ptr, remove->size);
+    if(g_info.large_used_tree->root == remove)
+        return;
+    munmap(remove, 4096);
+}
+
+void *tree_calloc(size_t nmemb, size_t size)
+{
+    if (nmemb == 0 || size == 0)
+        return NULL;
+
+    size_t realsize = nmemb * size;
+    void *return_pointer = malloc(realsize);
+
+#ifdef DEBUG
+    fprintf(stderr, "calloc(%ld, %ld) = %p\n", nmemb, size, return_pointer);
+#endif
+
+    return return_pointer;
+}
+
+void *tree_realloc(void *ptr, size_t size)
+{
+    void *newptr = malloc(size);
+#ifdef DEBUG
+    fprintf(stderr, "realloc(%p, %ld) = %p\n", ptr, size, newptr);
+#endif
+    if (ptr == NULL)
+        return newptr;
+
+    pthread_mutex_lock(&g_info.mutex);
+
+    large_t *remove = container_of(ptr, large_t, ptr);
+    pthread_mutex_unlock(&g_info.mutex);
+
+    if(newptr == NULL){
+        return NULL;    
+    }
+
+    if(remove == NULL)
+        free(newptr);
+        return NULL;
+    
+    memcpy(newptr, ptr, remove->size);
+    free(ptr);
+    return newptr;
+}
 
 
 void *malloc(size_t size)

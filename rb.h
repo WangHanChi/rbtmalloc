@@ -53,7 +53,7 @@
     do {                                                                  \
         (x_node)->x_field.right_red =                                     \
             (x_type *) ((((intptr_t) (x_node)->x_field.right_red) & ~3) | \
-                        ((ssize_t) x_red));                               \
+                        ((size_t) x_red));                               \
     } while (0)
 #define rbtn_red_set(x_type, x_field, x_node)                           \
     do {                                                                \

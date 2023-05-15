@@ -1,13 +1,16 @@
-CFLAGS = -O0 -std=c11 -D_GNU_SOURCE -g -fvisibility=hidden -Wall -Wextra -fPIC -I .
+CFLAGS = -std=c11 -D_GNU_SOURCE -g -fvisibility=hidden -Wall -Wextra -fPIC -I .
 LDFLAGS = -Wl,--as-needed
 LDLIBS = -lpthread
 OBJECTS = alloc.o mpool.o
 BINARIES = alloc.so test_small test_large test_huge test
 
-DEBUG ?= 1
+DEBUG ?= 0
 
 ifeq ($(DEBUG), 1)
 	CFLAGS += -DDEBUG
+else
+	CFLAGS += -O2 
+	LDFLAGS += -O2
 endif
 
 all: clean $(BINARIES)
