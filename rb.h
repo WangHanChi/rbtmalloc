@@ -53,7 +53,7 @@
     do {                                                                  \
         (x_node)->x_field.right_red =                                     \
             (x_type *) ((((intptr_t) (x_node)->x_field.right_red) & ~3) | \
-                        ((size_t) x_red));                               \
+                        ((size_t) x_red));                                \
     } while (0)
 #define rbtn_red_set(x_type, x_field, x_node)                           \
     do {                                                                \
@@ -201,6 +201,7 @@
     {                                                                          \
         rb_new(x_type, x_field, rbtree);                                       \
     }                                                                          \
+    __attribute__((unused))                                                    \
     x_attr x_type *x_prefix##search(x_rbt_type *rbtree, const x_type *key)     \
     {                                                                          \
         int cmp;                                                               \
@@ -610,25 +611,25 @@
         rbtree->root = path->node;                                             \
         assert(!rbtn_red_get(x_type, x_field, rbtree->root));                  \
     }                                                                          \
-    x_attr void x_prefix##destroy_recurse(x_rbt_type *rbtree, x_type *node,    \
-                                          void (*cb)(x_type *, void *),        \
-                                          void *arg)                           \
+    __attribute__((unused)) x_attr void x_prefix##destroy_recurse(             \
+        x_rbt_type *rbtree, x_type *node, void (*cb)(x_type *, void *),        \
+        void *arg)                                                             \
     {                                                                          \
         if (!node)                                                             \
             return;                                                            \
         x_prefix##destroy_recurse(                                             \
             rbtree, rbtn_left_get(x_type, x_field, node), cb, arg);            \
-        rbtn_left_set(x_type, x_field, (node), NULL);                          \
+        /*rbtn_left_set(x_type, x_field, (node), NULL);*/                      \
         x_prefix##destroy_recurse(                                             \
             rbtree, rbtn_right_get(x_type, x_field, node), cb, arg);           \
-        rbtn_right_set(x_type, x_field, (node), NULL);                         \
+        /*rbtn_right_set(x_type, x_field, (node), NULL);*/                     \
         if (cb) {                                                              \
             cb(node, arg);                                                     \
         }                                                                      \
     }                                                                          \
-    x_attr void x_prefix##destroy(x_rbt_type *rbtree,                          \
-                                  void (*cb)(x_type *, void *), void *arg)     \
+    __attribute__((unused)) x_attr void x_prefix##destroy(                     \
+        x_rbt_type *rbtree, void (*cb)(x_type *, void *), void *arg)           \
     {                                                                          \
         x_prefix##destroy_recurse(rbtree, rbtree->root, cb, arg);              \
-        rbtree->root = NULL;                                                   \
+        /*rbtree->root = NULL;*/                                               \
     }

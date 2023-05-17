@@ -1,13 +1,13 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <string.h>
 #include "mpool.h"
 #define N 100000
 
 int main()
 {
-    printf("%ld\n", sizeof(slab_t));
+    printf("%ld\n", sizeof(comb_t));
     void **p = malloc(N * sizeof(void *));
 
     for (size_t i = 0; i < N; i++) {

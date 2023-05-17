@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "list.h"
@@ -21,9 +21,9 @@ void list_replace(struct list_head *from, struct list_head *to)
 }
 
 /* Search for a free space to place a new block */
-slab_t *get_loc_to_place(struct list_head *head, int size)
+comb_t *get_loc_to_place(struct list_head *head, int size)
 {
-    slab_t *node;
+    comb_t *node;
     list_for_each_entry (node, head, list) {
         if (node->size >= (size + header_size))
             return node;
@@ -66,8 +66,8 @@ struct list_head *get_loc_to_free(struct list_head *head, void *addr)
     if (list_is_singular(head))
         return head->prev;
 
-    slab_t *target = container_of(addr, slab_t, ptr);
-    slab_t *node = NULL;
+    comb_t *target = container_of(addr, comb_t, ptr);
+    comb_t *node = NULL;
 
     list_for_each_entry (node, head, list) {
         if ((uintptr_t) target < (uintptr_t) node)
@@ -77,8 +77,7 @@ struct list_head *get_loc_to_free(struct list_head *head, void *addr)
     return &node->list;
 }
 
-void list_insert_before(struct list_head *node,
-                                      struct list_head *after)
+void list_insert_before(struct list_head *node, struct list_head *after)
 {
     struct list_head *prev = after->prev;
     node->prev = prev;
